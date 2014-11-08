@@ -1,0 +1,125 @@
+#!/usr/bin/env python
+ 
+# import modules used here -- sys is a very standard one
+import sys, os, argparse, logging, plistlib
+ 
+# Gather our code in a main() function
+def main(args, loglevel):
+    logging.basicConfig(format="%(levelname)s: %(message)s", level=loglevel)
+
+    print "Replacing icons..."
+    logging.info("Applying icons in directory: \'" + args.path + "\'")
+
+    absolutePath = os.path.abspath(args.path)
+    applyIconsInDirectory(absolutePath)
+
+
+
+# Apply all the icons in this directory and all subdirectories.
+def applyIconsInDirectory(root):
+    for root, subdirs, files in os.walk(root):
+        for filename in files:
+            fileName, fileExtension = os.path.splitext(filename)
+            filePath = os.path.join(root, filename)
+
+            if fileName[:1] == '.':
+                # The file is hidden, silently ignore.
+                pass
+            elif fileExtension == ".icns":
+                # The file is an .icns file.
+                applyIconForPath(filePath)
+            else:
+                # The file does not meet criteria.
+                logging.info("Ignoring " + fileName + fileExtension + " as it is not of type .icns")
+
+
+
+# Apply an icon at a particular path.
+def applyIconForPath(path):
+    # The path relative to the given starting directory.
+    relativePath = os.path.relpath(path, args.path)
+    logging.info("Applying icon: \'" + relativePath + "\'")
+
+    # Get the file path without the extension, which is the app's path.
+    fileName, fileExtension = os.path.splitext(relativePath)
+    appPath = "/" + fileName + ".app"
+
+    # Get the file path for the Info.plist for the app.
+    infoPlistPath = appPath + "/Contents/Info.plist"
+    if os.path.exists(infoPlistPath):
+        logging.debug("Opening Info Plist: " + infoPlistPath)
+    else:
+        logging.info("Could not find Info.plist for \'" + appPath + "\'. Ignoring icon.")
+        return
+
+    # Open the plist for reading.
+    # TODO: Fix issue with unusually formatted plist files (*cough* TextMate *cough*).
+    infoPlist = plistlib.readPlist(infoPlistPath)
+
+    # The key for the icons file in the plist.
+    iconsFileKey = ""
+    if "CGBundleIconsFile" in infoPlist.keys():
+        iconsFileKey = "CGBundleIconsFile"
+    elif "CFBundleIconFile" in infoPlist.keys():
+        iconsFileKey = "CFBundleIconFile"
+    else:
+        logging.info("Could not find corresponding .icns file for app: \'" + appPath + "\'. Ignoring icon.")
+        return
+
+    # Get the file path for the icns file.
+    icnsFilePath = infoPlist[iconsFileKey]
+    # If the value doesn't already end in ".icns", make it.
+    if icnsFilePath[-5:] != ".icns":
+        icnsFilePath += ".icns"
+
+    # Construct the full path for the app icon in the app's bundle.
+    fullIcnsFilePath = appPath + "/Contents/Resources/" + icnsFilePath
+
+    fullIcnsFilePathBackup = fullIcnsFilePath[:-5] + ".backup.icns"
+    # If no backup exists already, back up the icon.
+    if not (os.path.exists(fullIcnsFilePathBackup)):
+        # Backup original icns file by copying it and appending ".backup" to file name.
+        os.system("sudo cp " + shellquote(fullIcnsFilePath) + " " + shellquote(fullIcnsFilePathBackup))
+
+    # Copy new icns file into place.
+    os.system("sudo cp " + shellquote(path) + " " + shellquote(fullIcnsFilePath))
+
+    # Touch the app and Info.plist to get it to update.
+    os.system("sudo touch " + shellquote(appPath));
+    os.system("sudo touch " + shellquote(infoPlistPath));
+
+
+
+# Escape a string for use in os.system() call
+# Code via http://stackoverflow.com/a/35857
+def shellquote(s):
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+
+# Standard boilerplate to call the main() function to begin the program.
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser( 
+            description = "Does a thing to some stuff.",
+            epilog = "As an alternative to the commandline, params can be placed in a file, one per line, and specified on the commandline like '%(prog)s @params.conf'.",
+            fromfile_prefix_chars = '@' )
+  
+    # TODO Specify your real parameters here.
+    parser.add_argument(
+            "path",
+            help = "Pass a folder path to the program to replace icns files.",
+            metavar = "path")
+    parser.add_argument(
+            "-v",
+            "--verbose",
+            help="increase output verbosity",
+            action="store_true")
+    args = parser.parse_args()
+
+    # Setup logging
+    if args.verbose:
+        loglevel = logging.DEBUG
+    else:
+        loglevel = logging.INFO
+
+    main(args, loglevel)
